@@ -1,86 +1,92 @@
 #!/bin/bash
-# auto_rag_chat.sh - Complete automation for the GSP1226 lab (AlloyDB + LangChain RAG Chat App)
+# cloudcupcake.sh
+# Automates setup for LLM + RAG Chat App with AlloyDB & LangChain
 
-set -e
-echo "🚀 Starting full lab automation for GSP1226..."
+set -euo pipefail
 
-# 1. Enable required APIs
-gcloud services enable alloydb.googleapis.com compute.googleapis.com iam.googleapis.com run.googleapis.com sqladmin.googleapis.com
+echo "🚀 Starting Lab Automation Script: Build LLM & RAG Chat App with AlloyDB + LangChain"
 
-# 2. Create AlloyDB cluster & primary instance
-REGION="us-central1"
-CLUSTER="rag-alloydb"
-INSTANCE="primary"
-NETWORK="default"
-SAVE_PASSWORD="P@ssw0rd123!"
-echo "Creating AlloyDB cluster..."
-gcloud alloydb clusters create $CLUSTER --region=$REGION --network=$NETWORK
-gcloud alloydb instances create $INSTANCE --region=$REGION --cluster=$CLUSTER --cpu=2 --memory=8GB --password=$SAVE_PASSWORD
-echo "Waiting for AlloyDB to be ready..."
-sleep 120
+# Detect Project ID
+PROJECT_ID=$(gcloud config get-value project)
+if [[ -z "$PROJECT_ID" ]]; then
+  echo "❌ ERROR: No project set. Please run: gcloud config set project PROJECT_ID"
+  exit 1
+fi
+echo "✅ Using Project ID: $PROJECT_ID"
 
-# 3. Set env vars and get IP
-export PROJECT_ID=$(gcloud config get-value project)
-ADB_IP=$(gcloud alloydb instances describe $INSTANCE --region=$REGION --cluster=$CLUSTER --format="value(ipAddress)")
-export PGPASSWORD=$SAVE_PASSWORD
-echo "AlloyDB IP: $ADB_IP"
+# Detect Region automatically (pick default compute region if available)
+REGION=$(gcloud config get-value compute/region || echo "")
+if [[ -z "$REGION" ]]; then
+  echo "⚠️ No default region found. Falling back to us-central1."
+  REGION="us-central1"
+fi
+echo "✅ Using Region: $REGION"
 
-# 4. Create PostgreSQL client on Cloud Shell (should already be available)
-sudo apt-get update
-sudo apt-get install -y postgresql-client
+# Ask user for Zone (must belong to REGION)
+read -rp "👉 Enter Zone (e.g., ${REGION}-b): " ZONE
+if [[ -z "$ZONE" ]]; then
+  echo "❌ Zone cannot be empty."
+  exit 1
+fi
 
-# 5. Initialize database & extensions
-psql "host=$ADB_IP user=postgres sslmode=require" -c "CREATE DATABASE assistantdemo;"
-psql "host=$ADB_IP user=postgres sslmode=require dbname=assistantdemo" -c "CREATE EXTENSION IF NOT EXISTS vector;"
+gcloud config set compute/zone "$ZONE"
 
-# 6. Set up Python environment
-sudo apt install -y python3.11-venv git
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
+echo "✅ Configuration complete"
+echo "   Project: $PROJECT_ID"
+echo "   Region:  $REGION"
+echo "   Zone:    $ZONE"
 
-# 7. Clone project repo & populate database
-git clone https://github.com/GoogleCloudPlatform/genai-databases-retrieval-app.git
-cd genai-databases-retrieval-app/retrieval_service
-cp example-config.yml config.yml
-sed -i "s/127.0.0.1/$ADB_IP/g" config.yml
-sed -i "s/my-password/$PGPASSWORD/g" config.yml
-sed -i "s/my_database/assistantdemo/g" config.yml
-sed -i "s/my-user/postgres/g" config.yml
-pip install -r requirements.txt
-python run_database_init.py
-cd ../..
+# -------------------------------
+# Start Lab Automation Tasks
+# -------------------------------
 
-# 8. Create service account and grant AI Platform access
-gcloud iam service-accounts create retrieval-identity
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:retrieval-identity@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/aiplatform.user"
+echo "⚙️ Enabling required APIs..."
+gcloud services enable alloydb.googleapis.com \
+  aiplatform.googleapis.com \
+  run.googleapis.com \
+  artifactregistry.googleapis.com
 
-# 9. Deploy retrieval service to Cloud Run
-cd genai-databases-retrieval-app
-gcloud alpha run deploy retrieval-service \
-    --source=./retrieval_service/ \
-    --no-allow-unauthenticated \
-    --service-account retrieval-identity \
-    --region=$REGION \
-    --platform=managed \
-    --quiet
-export RETRIEVAL_URL=$(gcloud run services describe retrieval-service --region=$REGION --format="value(status.url)")
+echo "✅ APIs enabled"
 
-# 10. Verify service health
-curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" $RETRIEVAL_URL
+# Create AlloyDB cluster + instance
+CLUSTER_NAME="rag-cluster"
+INSTANCE_NAME="rag-instance"
 
-# 11. Launch sample LangChain app
-cd llm_demo
-pip install -r requirements.txt
-export BASE_URL=$RETRIEVAL_URL
-# Note: CLIENT_ID must be set manually in lab UI for OAuth features. Skip if not needed.
-python run_app.py &
-cd ~
+echo "⚙️ Creating AlloyDB cluster: $CLUSTER_NAME"
+gcloud alloydb clusters create $CLUSTER_NAME \
+  --region=$REGION \
+  --network=default \
+  --password=AlloyDB@123
 
-# 12. All done!
-echo "✅ Lab automation complete!"
-echo "Access your LLM + RAG chat app via Cloud Shell Web Preview on port 8081."
-echo "BASE_URL set to: $BASE_URL"
-echo "Database assistantdemo initialized in AlloyDB!"
+echo "⚙️ Creating AlloyDB instance: $INSTANCE_NAME"
+gcloud alloydb instances create $INSTANCE_NAME \
+  --cluster=$CLUSTER_NAME \
+  --region=$REGION \
+  --cpu-count=2 \
+  --memory-size=8GB
+
+echo "✅ AlloyDB setup complete"
+
+# Deploy RAG Chat App with Cloud Run (placeholder, adjust app repo)
+APP_NAME="rag-chat-app"
+IMAGE_NAME="$REGION-docker.pkg.dev/$PROJECT_ID/rag-repo/rag-app:latest"
+
+echo "⚙️ Setting up Artifact Registry..."
+gcloud artifacts repositories create rag-repo \
+  --repository-format=docker \
+  --location=$REGION \
+  --description="RAG app repo" || true
+
+echo "⚙️ Building and pushing Docker image..."
+gcloud builds submit --tag "$IMAGE_NAME" .
+
+echo "⚙️ Deploying app to Cloud Run..."
+gcloud run deploy $APP_NAME \
+  --image="$IMAGE_NAME" \
+  --region=$REGION \
+  --platform=managed \
+  --allow-unauthenticated
+
+echo "🎉 Deployment complete!"
+echo "🔗 Visit your RAG Chat App at:"
+gcloud run services describe $APP_NAME --region=$REGION --format='value(status.url)'

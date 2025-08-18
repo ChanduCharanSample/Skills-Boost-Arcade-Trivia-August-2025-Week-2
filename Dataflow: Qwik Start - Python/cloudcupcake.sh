@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 YELLOW='\033[0;33m'
@@ -33,9 +34,11 @@ do
 done
 pattern=(
 "**********************************************************"
-"**                 LAB COMPLETED SUCCESSFULLY           **"
+"**                                                      **"
+"**            LAB COMPLETED SUCCESSFULLY!               **"
 "**                                                      **"
 "**********************************************************"
+)
 )
 for line in "${pattern[@]}"
 do

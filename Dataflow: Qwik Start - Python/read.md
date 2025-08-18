@@ -10,9 +10,10 @@ export LOCATION=
 ```
 
 ```
-curl -LO https://raw.githubusercontent.com/ChanduCharanSample/Skills-Boost-Arcade-Trivia-August-2025-Week-2/refs/heads/main/Dataflow%3A%20Qwik%20Start%20-%20Python/cloudcupcake.sh
+curl -LO https://raw.githubusercontent.com/ChanduCharanSample/Skills-Boost-Arcade-Trivia-August-2025-Week-2/main/Dataflow%3A%20Qwik%20Start%20-%20Python/cloudcupcake.sh
 chmod +x cloudcupcake.sh
 ./cloudcupcake.sh
+
 
 
 ```
